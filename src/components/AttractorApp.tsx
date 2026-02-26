@@ -137,11 +137,11 @@ export default function AttractorApp() {
         )}
       </div>
 
-      {/* Bottom center — interaction hint */}
+      {/* Bottom center — interaction hint + credit */}
       <div style={{
-        position: 'absolute', bottom: '2rem', left: '50%',
+        position: 'absolute', bottom: '1.5rem', left: '50%',
         transform: 'translateX(-50%)',
-        pointerEvents: 'none', zIndex: 10,
+        zIndex: 10,
         textAlign: 'center',
         fontFamily: '"Inter", -apple-system, sans-serif',
       }}>
@@ -149,8 +149,60 @@ export default function AttractorApp() {
           fontSize: '0.65rem',
           color: 'rgba(255,255,255,0.25)',
           letterSpacing: '0.1em',
+          pointerEvents: 'none',
+          marginBottom: '0.6rem',
         }}>
           Drag to orbit · Fist to cycle
+        </div>
+        <div style={{
+          fontSize: '0.65rem',
+          color: 'rgba(255,255,255,0.3)',
+          letterSpacing: '0.05em',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+        }}>
+          <span style={{ pointerEvents: 'none' }}>built with ✦ by <span style={{ color: 'rgba(255,255,255,0.5)' }}>Jisun Ahamed</span></span>
+          <a
+            href="https://jisun.online"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Portfolio — jisun.online"
+            style={{
+              pointerEvents: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '26px',
+              height: '26px',
+              borderRadius: '50%',
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'rgba(255,255,255,0.05)',
+              color: 'rgba(255,255,255,0.5)',
+              textDecoration: 'none',
+              transition: 'all 0.3s ease',
+              cursor: 'pointer',
+              fontSize: '13px',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.15)';
+              e.currentTarget.style.color = 'rgba(255,255,255,0.9)';
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+              e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+            }}
+          >
+            {/* Globe icon (SVG) */}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+          </a>
         </div>
       </div>
 

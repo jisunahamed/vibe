@@ -69,8 +69,8 @@ const ATTRACTOR_PALETTES: Record<AttractorKey, { colors: [number, number, number
 
 /* ─── Live particle system ─────────────────────────────────────────── */
 
-const PARTICLE_COUNT = 1500;   // Fewer particles = no white saturation with additive
-const TRAIL_LENGTH = 6;        // Short trail for speed
+const PARTICLE_COUNT = 800;    // Few distinct particles — each one clearly visible
+const TRAIL_LENGTH = 4;        // Short trail so head is always clear
 const TOTAL_POINTS = PARTICLE_COUNT * TRAIL_LENGTH;
 
 interface ParticleState {
@@ -124,7 +124,7 @@ function initParticles(key: AttractorKey): ParticleState {
         const rv = () => (Math.random() - 0.5) * 0.15;
 
         // Random base size for this particle (large variation like the reference)
-        const baseSize = 0.6 + Math.random() * 1.8; // 0.6 to 2.4
+        const baseSize = 1.5 + Math.random() * 2.5; // 1.5 to 4.0 — BIG balls
 
         for (let t = 0; t < TRAIL_LENGTH; t++) {
             const idx = (i * TRAIL_LENGTH + t) * 3;
@@ -139,10 +139,10 @@ function initParticles(key: AttractorKey): ParticleState {
 
             // Alpha: head bright, tail fades
             const trailFade = 1.0 - (t / TRAIL_LENGTH);
-            alphas[i * TRAIL_LENGTH + t] = trailFade * trailFade;
+            alphas[i * TRAIL_LENGTH + t] = t === 0 ? 1.0 : trailFade * trailFade * 0.6;
 
-            // Size: head is large, tail shrinks dramatically
-            sizes[i * TRAIL_LENGTH + t] = baseSize * (t === 0 ? 1.0 : Math.max(0.15, trailFade * 0.6));
+            // Size: head is large, tail much smaller
+            sizes[i * TRAIL_LENGTH + t] = baseSize * (t === 0 ? 1.0 : Math.max(0.2, trailFade * 0.4));
         }
     }
 
@@ -238,10 +238,9 @@ const vertexShader = `
         vAlpha = alpha;
         vColor = color;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        float breatheSize = size * (1.0 + uBreathe * 0.15);
-        // Larger size divisor = bigger particles on screen
-        gl_PointSize = breatheSize * (300.0 / -mvPosition.z);
-        gl_PointSize = clamp(gl_PointSize, 1.0, 28.0);
+        float breatheSize = size * (1.0 + uBreathe * 0.1);
+        gl_PointSize = breatheSize * (250.0 / -mvPosition.z);
+        gl_PointSize = clamp(gl_PointSize, 2.0, 40.0);
         gl_Position = projectionMatrix * mvPosition;
     }
 `;
@@ -253,10 +252,15 @@ const fragmentShader = `
     void main() {
         float d = length(gl_PointCoord - vec2(0.5));
         if (d > 0.5) discard;
-        // Soft radial falloff — glowing disk feel
-        float glow = 1.0 - smoothstep(0.0, 0.5, d);
-        glow = pow(glow, 2.0); // Sharper falloff = less overlap bleed
-        gl_FragColor = vec4(vColor * 0.85, vAlpha * glow * 0.45);
+
+        // Clear ball look: bright solid core + soft glow ring
+        float core = 1.0 - smoothstep(0.0, 0.25, d);  // Bright inner 50%
+        float glow = 1.0 - smoothstep(0.15, 0.5, d);  // Softer outer glow
+        float shape = core * 0.7 + glow * 0.3;
+
+        // Bright vivid color — each ball clearly visible
+        vec3 finalColor = vColor * (0.9 + core * 0.4); // Brighter at center
+        gl_FragColor = vec4(finalColor, vAlpha * shape * 0.9);
     }
 `;
 
@@ -288,7 +292,7 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
 
         // ── Camera — closer like the reference so attractor fills screen ──
         const camera = new THREE.PerspectiveCamera(65, w / h, 0.01, 500);
-        camera.position.set(0, 0, 1.6); // Close!
+        camera.position.set(0, 0, 2.2); // Pulled back so full shape is visible
 
         // ── Renderer ──
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -302,13 +306,13 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
 
-        // Bloom — strong neon glow
-        const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.35, 0.35, 0.85);
+        // Bloom — very subtle, just a hint of glow around particles
+        const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.15, 0.3, 0.9);
         composer.addPass(bloom);
 
-        // Afterimage — smooth motion trails (the key "fusion" effect)
+        // Afterimage — short comet-tail, NOT heavy enough to hide particles
         const afterimage = new AfterimagePass();
-        afterimage.uniforms['damp'].value = 0.82; // Moderate trails — prevents white buildup
+        afterimage.uniforms['damp'].value = 0.7;
         composer.addPass(afterimage);
 
         // Vignette — blue-tinted edges like reference
@@ -350,7 +354,7 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
             },
             transparent: true,
             depthWrite: false,
-            blending: THREE.AdditiveBlending, // Additive for neon glow (fewer particles = safe)
+            blending: THREE.NormalBlending, // Normal so each particle stays vivid & distinct
             vertexColors: true,
         });
 
