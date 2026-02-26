@@ -7,7 +7,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js';
-
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { ATTRACTORS, AttractorKey } from '../lib/attractors';
 import type { HandMetrics } from '../hooks/useHandTracking';
 
@@ -18,53 +18,72 @@ interface Props {
     debug?: boolean;
 }
 
-/* ─── Color palettes for each attractor ───────────────────────────── */
-const ATTRACTOR_PALETTES: Record<AttractorKey, { primary: [number, number, number], secondary: [number, number, number], accent: [number, number, number] }> = {
+/* ─── Color palettes — warm/neon tones like the reference ─────────── */
+const ATTRACTOR_PALETTES: Record<AttractorKey, { colors: [number, number, number][] }> = {
     lorenz: {
-        primary: [0.1, 0.6, 1.0],    // Electric blue
-        secondary: [0.9, 0.2, 0.5],   // Hot pink
-        accent: [0.3, 1.0, 0.8],      // Cyan/teal
+        colors: [
+            [1.0, 0.45, 0.1],   // Warm orange
+            [1.0, 0.7, 0.15],   // Gold
+            [0.95, 0.3, 0.2],   // Coral
+            [1.0, 0.85, 0.4],   // Light gold
+            [0.85, 0.25, 0.15], // Deep orange
+        ],
     },
     aizawa: {
-        primary: [1.0, 0.4, 0.1],    // Orange
-        secondary: [0.3, 0.1, 0.9],   // Deep purple
-        accent: [1.0, 0.8, 0.2],      // Gold
+        colors: [
+            [0.3, 0.6, 1.0],    // Sky blue
+            [0.5, 0.3, 1.0],    // Purple
+            [0.2, 0.9, 0.8],    // Cyan
+            [0.7, 0.4, 1.0],    // Lavender
+            [0.1, 0.7, 1.0],    // Electric blue
+        ],
     },
     thomas: {
-        primary: [0.2, 0.9, 0.4],    // Neon green
-        secondary: [0.0, 0.5, 1.0],   // Sky blue
-        accent: [0.8, 1.0, 0.3],      // Lime
+        colors: [
+            [0.1, 1.0, 0.5],    // Neon green
+            [0.4, 1.0, 0.3],    // Lime
+            [0.0, 0.8, 0.6],    // Emerald
+            [0.6, 1.0, 0.2],    // Yellow-green
+            [0.2, 0.9, 0.4],    // Spring green
+        ],
     },
     halvorsen: {
-        primary: [0.9, 0.1, 0.3],    // Crimson
-        secondary: [1.0, 0.6, 0.0],   // Amber
-        accent: [1.0, 0.3, 0.7],      // Magenta
+        colors: [
+            [1.0, 0.45, 0.1],   // Orange (matching reference)
+            [1.0, 0.7, 0.15],   // Gold
+            [0.95, 0.3, 0.2],   // Coral
+            [1.0, 0.55, 0.0],   // Amber
+            [0.85, 0.25, 0.15], // Deep orange-red
+        ],
     },
     arneodo: {
-        primary: [0.6, 0.2, 1.0],    // Violet
-        secondary: [0.2, 0.8, 1.0],   // Ice blue
-        accent: [0.9, 0.4, 1.0],      // Orchid
+        colors: [
+            [1.0, 0.2, 0.5],    // Hot pink
+            [1.0, 0.4, 0.7],    // Rose
+            [0.9, 0.1, 0.4],    // Crimson-pink
+            [1.0, 0.6, 0.8],    // Soft pink
+            [0.8, 0.15, 0.6],   // Magenta
+        ],
     },
 };
 
 /* ─── Live particle system ─────────────────────────────────────────── */
 
-const PARTICLE_COUNT = 3000;   // Number of live particles
-const TRAIL_LENGTH = 10;       // Each particle = trail of N sub-points
+const PARTICLE_COUNT = 1500;   // Fewer particles = no white saturation with additive
+const TRAIL_LENGTH = 6;        // Short trail for speed
 const TOTAL_POINTS = PARTICLE_COUNT * TRAIL_LENGTH;
 
 interface ParticleState {
     positions: Float32Array;
     colors: Float32Array;
     alphas: Float32Array;
-    sizes: Float32Array;     // Per-point size for variety
+    sizes: Float32Array;
     heads: Float32Array;
     key: AttractorKey;
     normCenter: [number, number, number];
     normScale: number;
 }
 
-/** Initialise particles randomly near the attractor's initial condition */
 function initParticles(key: AttractorKey): ParticleState {
     const att = ATTRACTORS[key];
     const palette = ATTRACTOR_PALETTES[key];
@@ -74,7 +93,6 @@ function initParticles(key: AttractorKey): ParticleState {
     const sizes = new Float32Array(TOTAL_POINTS);
     const heads = new Float32Array(PARTICLE_COUNT * 3);
 
-    // Pre-compute normalization reference
     let p: [number, number, number] = [...att.initial];
     const refPts: [number, number, number][] = [];
     for (let i = 0; i < 5000; i++) {
@@ -93,17 +111,20 @@ function initParticles(key: AttractorKey): ParticleState {
     const normCenter: [number, number, number] = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
     const normScale = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1;
 
-    // Scatter particles across the reference trajectory
     for (let i = 0; i < PARTICLE_COUNT; i++) {
         const ref = refPts[Math.floor(Math.random() * refPts.length)];
-        const jx = ref[0] + (Math.random() - 0.5) * normScale * 0.02;
-        const jy = ref[1] + (Math.random() - 0.5) * normScale * 0.02;
-        const jz = ref[2] + (Math.random() - 0.5) * normScale * 0.02;
+        const jx = ref[0] + (Math.random() - 0.5) * normScale * 0.015;
+        const jy = ref[1] + (Math.random() - 0.5) * normScale * 0.015;
+        const jz = ref[2] + (Math.random() - 0.5) * normScale * 0.015;
         heads[i * 3] = jx; heads[i * 3 + 1] = jy; heads[i * 3 + 2] = jz;
 
-        // Choose color from palette based on particle position along trajectory
-        const colorMix = (i / PARTICLE_COUNT);
-        const phase = colorMix * Math.PI * 2;
+        // Pick a random color from the palette
+        const col = palette.colors[Math.floor(Math.random() * palette.colors.length)];
+        // Add slight random variation
+        const rv = () => (Math.random() - 0.5) * 0.15;
+
+        // Random base size for this particle (large variation like the reference)
+        const baseSize = 0.6 + Math.random() * 1.8; // 0.6 to 2.4
 
         for (let t = 0; t < TRAIL_LENGTH; t++) {
             const idx = (i * TRAIL_LENGTH + t) * 3;
@@ -112,37 +133,27 @@ function initParticles(key: AttractorKey): ParticleState {
             const nz = (jz - normCenter[2]) / normScale;
             positions[idx] = nx; positions[idx + 1] = ny; positions[idx + 2] = nz;
 
-            // Color: interpolate between palette colors based on position
-            const blend1 = Math.sin(phase) * 0.5 + 0.5;
-            const blend2 = Math.sin(phase + 2.09) * 0.5 + 0.5;
-            colors[idx] = palette.primary[0] * blend1 + palette.secondary[0] * blend2 + palette.accent[0] * (1 - blend1) * 0.3;
-            colors[idx + 1] = palette.primary[1] * blend1 + palette.secondary[1] * blend2 + palette.accent[1] * (1 - blend1) * 0.3;
-            colors[idx + 2] = palette.primary[2] * blend1 + palette.secondary[2] * blend2 + palette.accent[2] * (1 - blend1) * 0.3;
+            colors[idx] = Math.min(1.0, col[0] + rv());
+            colors[idx + 1] = Math.min(1.0, col[1] + rv());
+            colors[idx + 2] = Math.min(1.0, col[2] + rv());
 
-            // Clamp colors
-            colors[idx] = Math.min(1.0, colors[idx]);
-            colors[idx + 1] = Math.min(1.0, colors[idx + 1]);
-            colors[idx + 2] = Math.min(1.0, colors[idx + 2]);
-
-            // Alpha: head is bright, tail fades out smoothly
+            // Alpha: head bright, tail fades
             const trailFade = 1.0 - (t / TRAIL_LENGTH);
-            alphas[i * TRAIL_LENGTH + t] = trailFade * trailFade; // Quadratic falloff
+            alphas[i * TRAIL_LENGTH + t] = trailFade * trailFade;
 
-            // Size: head is larger, tail gets smaller
-            sizes[i * TRAIL_LENGTH + t] = (t === 0) ? 1.0 : Math.max(0.3, trailFade);
+            // Size: head is large, tail shrinks dramatically
+            sizes[i * TRAIL_LENGTH + t] = baseSize * (t === 0 ? 1.0 : Math.max(0.15, trailFade * 0.6));
         }
     }
 
     return { positions, colors, alphas, sizes, heads, key, normCenter, normScale };
 }
 
-/** Advance all particles one step along the attractor */
 function stepParticles(state: ParticleState) {
     const att = ATTRACTORS[state.key];
     const { positions, heads, normCenter, normScale } = state;
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-        // Shift trail backward
         for (let t = TRAIL_LENGTH - 1; t > 0; t--) {
             const dst = (i * TRAIL_LENGTH + t) * 3;
             const src = (i * TRAIL_LENGTH + t - 1) * 3;
@@ -151,8 +162,7 @@ function stepParticles(state: ParticleState) {
             positions[dst + 2] = positions[src + 2];
         }
 
-        // Advance head
-        let hx = heads[i * 3], hy = heads[i * 3 + 1], hz = heads[i * 3 + 2];
+        const hx = heads[i * 3], hy = heads[i * 3 + 1], hz = heads[i * 3 + 2];
         const next = rk4Step([hx, hy, hz], att);
 
         if (isNaN(next[0]) || Math.abs(next[0]) > 1e4) {
@@ -171,7 +181,6 @@ function stepParticles(state: ParticleState) {
     }
 }
 
-/** Single RK4 step */
 function rk4Step(p: [number, number, number], att: typeof ATTRACTORS[AttractorKey]): [number, number, number] {
     const f = att.derive;
     const pr = att.params;
@@ -187,7 +196,36 @@ function rk4Step(p: [number, number, number], att: typeof ATTRACTORS[AttractorKe
     ];
 }
 
-/* ─── Custom Shader Material for particles ──────────────────────── */
+/* ─── Vignette shader (blue edge glow like reference) ─────────────── */
+const VignetteShader = {
+    uniforms: {
+        tDiffuse: { value: null },
+        uColor: { value: new THREE.Vector3(0.05, 0.08, 0.2) }, // Dark blue
+        uIntensity: { value: 0.7 },
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform vec3 uColor;
+        uniform float uIntensity;
+        varying vec2 vUv;
+        void main() {
+            vec4 tex = texture2D(tDiffuse, vUv);
+            float d = distance(vUv, vec2(0.5));
+            float vignette = smoothstep(0.3, 0.85, d) * uIntensity;
+            tex.rgb = mix(tex.rgb, uColor, vignette);
+            gl_FragColor = tex;
+        }
+    `,
+};
+
+/* ─── Custom particle shader — soft glowing disks ──────────────── */
 
 const vertexShader = `
     attribute float alpha;
@@ -200,9 +238,10 @@ const vertexShader = `
         vAlpha = alpha;
         vColor = color;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        float breatheSize = size * (1.0 + uBreathe * 0.3);
-        gl_PointSize = breatheSize * (150.0 / -mvPosition.z);
-        gl_PointSize = clamp(gl_PointSize, 1.0, 6.0);
+        float breatheSize = size * (1.0 + uBreathe * 0.15);
+        // Larger size divisor = bigger particles on screen
+        gl_PointSize = breatheSize * (300.0 / -mvPosition.z);
+        gl_PointSize = clamp(gl_PointSize, 1.0, 28.0);
         gl_Position = projectionMatrix * mvPosition;
     }
 `;
@@ -212,12 +251,12 @@ const fragmentShader = `
     varying vec3 vColor;
 
     void main() {
-        // Soft circle shape
         float d = length(gl_PointCoord - vec2(0.5));
-
         if (d > 0.5) discard;
-        float softEdge = 1.0 - smoothstep(0.1, 0.5, d);
-        gl_FragColor = vec4(vColor, vAlpha * softEdge * 0.85);
+        // Soft radial falloff — glowing disk feel
+        float glow = 1.0 - smoothstep(0.0, 0.5, d);
+        glow = pow(glow, 2.0); // Sharper falloff = less overlap bleed
+        gl_FragColor = vec4(vColor * 0.85, vAlpha * glow * 0.45);
     }
 `;
 
@@ -245,32 +284,36 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
 
         // ── Scene ──
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x050510);
-        scene.fog = new THREE.FogExp2(0x050510, 0.15);
+        scene.background = new THREE.Color(0x000000); // Pure black like reference
 
-        // ── Camera ──
-        const camera = new THREE.PerspectiveCamera(55, w / h, 0.01, 500);
-        camera.position.set(0, 0, 2.5);
+        // ── Camera — closer like the reference so attractor fills screen ──
+        const camera = new THREE.PerspectiveCamera(65, w / h, 0.01, 500);
+        camera.position.set(0, 0, 1.6); // Close!
 
         // ── Renderer ──
-        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
         renderer.setSize(w, h);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.setClearColor(0x050510, 1);
+        renderer.setClearColor(0x000000, 1);
         renderer.domElement.style.display = 'block';
         containerRef.current.appendChild(renderer.domElement);
 
-        // ── Post-processing ──
+        // ── Post-processing pipeline (like reference) ──
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
 
-        const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.3, 0.3, 0.85);
+        // Bloom — strong neon glow
+        const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.35, 0.35, 0.85);
         composer.addPass(bloom);
 
-        // AfterimagePass for smooth trail/fusion effect (safe with NormalBlending)
+        // Afterimage — smooth motion trails (the key "fusion" effect)
         const afterimage = new AfterimagePass();
-        afterimage.uniforms['damp'].value = 0.88;
+        afterimage.uniforms['damp'].value = 0.82; // Moderate trails — prevents white buildup
         composer.addPass(afterimage);
+
+        // Vignette — blue-tinted edges like reference
+        const vignettePass = new ShaderPass(VignetteShader);
+        composer.addPass(vignettePass);
 
         // ── Controls ──
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -278,8 +321,8 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         controls.dampingFactor = 0.06;
         controls.enablePan = false;
         controls.enableZoom = true;
-        controls.minDistance = 0.5;
-        controls.maxDistance = 8.0;
+        controls.minDistance = 0.3;
+        controls.maxDistance = 6.0;
         controls.autoRotate = false;
 
         // ── Attractor group ──
@@ -307,7 +350,7 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
             },
             transparent: true,
             depthWrite: false,
-            blending: THREE.NormalBlending,
+            blending: THREE.AdditiveBlending, // Additive for neon glow (fewer particles = safe)
             vertexColors: true,
         });
 
@@ -316,42 +359,6 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         pointsRef.current = pts;
         prevIdxRef.current = attractorIndex;
         readyRef.current = true;
-
-        // ── Starfield ──
-        const STAR_N = 3000;
-        const sP = new Float32Array(STAR_N * 3);
-        const sC = new Float32Array(STAR_N * 3);
-        for (let i = 0; i < STAR_N; i++) {
-            const r = 10 + Math.random() * 25;
-            const th = Math.random() * Math.PI * 2;
-            const ph = Math.acos(2 * Math.random() - 1);
-            sP[i * 3] = r * Math.sin(ph) * Math.cos(th);
-            sP[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
-            sP[i * 3 + 2] = r * Math.cos(ph);
-            // Subtle colored stars
-            const starHue = Math.random();
-            sC[i * 3] = 0.5 + 0.5 * Math.sin(starHue * 6.28);
-            sC[i * 3 + 1] = 0.5 + 0.5 * Math.sin(starHue * 6.28 + 2);
-            sC[i * 3 + 2] = 0.5 + 0.5 * Math.sin(starHue * 6.28 + 4);
-        }
-        const sGeo = new THREE.BufferGeometry();
-        sGeo.setAttribute('position', new THREE.BufferAttribute(sP, 3));
-        sGeo.setAttribute('color', new THREE.BufferAttribute(sC, 3));
-        const stars = new THREE.Points(sGeo, new THREE.PointsMaterial({
-            size: 0.03, vertexColors: true, transparent: true, opacity: 0.4, depthWrite: false,
-        }));
-        scene.add(stars);
-
-        // ── Optional ambient light ring (subtle aesthetic) ──
-        const ringGeo = new THREE.TorusGeometry(1.2, 0.003, 8, 100);
-        const ringMat = new THREE.MeshBasicMaterial({
-            color: 0x3366ff,
-            transparent: true,
-            opacity: 0.15,
-        });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.rotation.x = Math.PI / 2;
-        group.add(ring);
 
         // ── Debug ──
         if (debug) {
@@ -369,7 +376,7 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
             const t = clock.getElapsedTime();
             controls.update();
 
-            // ── Advance live particles (controlled speed — 2 steps per frame) ──
+            // ── Advance live particles ──
             if (stateRef.current && pointsRef.current) {
                 stepAccum += dt;
                 const stepsPerFrame = Math.min(Math.floor(stepAccum / 0.008), 3);
@@ -378,34 +385,27 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
                 }
                 if (stepsPerFrame > 0) stepAccum = 0;
 
-                // Upload updated positions to GPU
                 const posAttr = pointsRef.current.geometry.attributes.position as THREE.BufferAttribute;
                 (posAttr.array as Float32Array).set(stateRef.current.positions);
                 posAttr.needsUpdate = true;
             }
 
-            // ── Group rotation (SLOW — enjoyable to watch) ──
-            group.rotation.y += 0.002;
-            group.rotation.x += 0.0008;
-            group.rotation.z = Math.sin(t * 0.3) * 0.04;
-
-            // ── Ring animation ──
-            ring.rotation.z = t * 0.2;
-            ringMat.opacity = 0.08 + Math.sin(t * 0.8) * 0.04;
+            // ── Group rotation (slow + wobble) ──
+            group.rotation.y += 0.003;
+            group.rotation.x += 0.001;
+            group.rotation.z = Math.sin(t * 0.4) * 0.05;
 
             // ── Hand interaction ──
             const m = getMetrics();
             if (m.present) {
-                // Scale: hand closer = bigger
                 const tgtScale = 0.6 + m.scale * 1.8;
                 curScale.current += (tgtScale - curScale.current) * 0.06;
                 group.scale.setScalar(curScale.current);
 
-                // Rotation bias from hand position
                 curBiasY.current += ((m.centerX - 0.5) * 1.2 - curBiasY.current) * 0.04;
                 curBiasX.current += ((m.centerY - 0.5) * 0.8 - curBiasX.current) * 0.04;
-                group.rotation.y += curBiasY.current * 0.04;
-                group.rotation.x += curBiasX.current * 0.04;
+                group.rotation.y += curBiasY.current * 0.05;
+                group.rotation.x += curBiasX.current * 0.05;
             } else {
                 curScale.current += (1.0 - curScale.current) * 0.03;
                 group.scale.setScalar(curScale.current);
@@ -415,10 +415,6 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
 
             // ── Breathing point size ──
             shaderMat.uniforms.uBreathe.value = Math.sin(t * 1.5) * 0.5;
-
-            // ── Rotate stars ──
-            stars.rotation.y += 0.0001;
-            stars.rotation.x += 0.00005;
 
             composer.render();
         }
@@ -448,7 +444,7 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    /* ── Attractor swap (subsequent changes only) ── */
+    /* ── Attractor swap ── */
     useEffect(() => {
         if (prevIdxRef.current === attractorIndex) return;
         if (!readyRef.current || !groupRef.current || !pointsRef.current) return;
@@ -458,7 +454,6 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         const newState = initParticles(key);
         stateRef.current = newState;
 
-        // Update geometry buffers in-place
         const geo = pointsRef.current.geometry;
         const posAttr = geo.attributes.position as THREE.BufferAttribute;
         const colAttr = geo.attributes.color as THREE.BufferAttribute;
@@ -482,7 +477,7 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
             style={{
                 position: 'fixed', inset: 0,
                 width: '100vw', height: '100vh',
-                background: '#050510', zIndex: 0,
+                background: '#000', zIndex: 0,
             }}
         />
     );

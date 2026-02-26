@@ -20,7 +20,6 @@ export default function AttractorApp() {
 
   const { getStatus, getMetrics, getVideo, getLandmarks } = useHandTracking(cycleAttractor);
 
-  // Poll status text at a low frequency (UI only)
   useEffect(() => {
     const id = setInterval(() => setStatusText(getStatus()), 500);
     return () => clearInterval(id);
@@ -55,16 +54,6 @@ export default function AttractorApp() {
   const currentKey = keys[attractorIndex % keys.length];
   const name = ATTRACTORS[currentKey].name;
 
-  // Color theme per attractor for UI
-  const uiColors: Record<AttractorKey, string> = {
-    lorenz: '#1a8cff',
-    aizawa: '#ff6a1a',
-    thomas: '#33e65a',
-    halvorsen: '#e61a4e',
-    arneodo: '#9933ff',
-  };
-  const accentColor = uiColors[currentKey] || '#1a8cff';
-
   return (
     <div
       style={{ position: 'fixed', inset: 0, cursor: 'grab', userSelect: 'none' }}
@@ -78,109 +67,69 @@ export default function AttractorApp() {
         debug={debug}
       />
 
-      {/* Camera Preview with hand landmarks */}
+      {/* Camera Preview */}
       <CameraPreview
         getVideo={getVideo}
         getLandmarks={getLandmarks}
         getStatus={getStatus}
       />
 
-      {/* Top-left info overlay */}
+      {/* Top-left panel — minimal, like the reference */}
       <div style={{
-        position: 'absolute', top: '2rem', left: '2rem',
+        position: 'absolute', top: '1.5rem', left: '1.5rem',
         pointerEvents: 'none', zIndex: 10,
         fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}>
-        {/* Instruction pill */}
+        {/* Attractor label */}
         <div style={{
-          display: 'inline-block',
-          fontSize: '0.65rem',
+          fontSize: '0.6rem',
           textTransform: 'uppercase',
-          letterSpacing: '0.15em',
-          color: 'rgba(255,255,255,0.5)',
-          marginBottom: '0.75rem',
-          background: 'rgba(255,255,255,0.06)',
-          padding: '6px 14px',
-          borderRadius: '20px',
-          border: '1px solid rgba(255,255,255,0.08)',
-          backdropFilter: 'blur(10px)',
+          letterSpacing: '0.2em',
+          color: 'rgba(255,255,255,0.35)',
+          marginBottom: '0.5rem',
         }}>
-          ✋ Hand to control · ✊ Fist to switch · 🖱️ Scroll to zoom
+          ATTRACTOR
         </div>
 
-        {/* Attractor name with accent color */}
+        {/* Attractor name — clean, white */}
         <div style={{
-          fontSize: '2.2rem',
-          fontWeight: 200,
-          color: '#fff',
-          letterSpacing: '0.06em',
-          textShadow: `0 0 30px ${accentColor}40`,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
+          fontSize: '1.5rem',
+          fontWeight: 400,
+          color: 'rgba(255,255,255,0.85)',
+          letterSpacing: '0.04em',
+          marginBottom: '0.8rem',
         }}>
-          <span style={{
-            width: '10px',
-            height: '10px',
-            borderRadius: '50%',
-            background: accentColor,
-            boxShadow: `0 0 12px ${accentColor}`,
-            display: 'inline-block',
-          }} />
           {name}
         </div>
 
-        {/* Attractor indicator dots */}
-        <div style={{
-          display: 'flex',
-          gap: '8px',
-          marginTop: '0.75rem',
-          alignItems: 'center',
-        }}>
-          {keys.map((k, i) => (
-            <div
-              key={k}
-              style={{
-                width: i === (attractorIndex % keys.length) ? '20px' : '6px',
-                height: '6px',
-                borderRadius: '3px',
-                background: i === (attractorIndex % keys.length) ? accentColor : 'rgba(255,255,255,0.2)',
-                transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: i === (attractorIndex % keys.length) ? `0 0 8px ${accentColor}60` : 'none',
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Status text */}
+        {/* Status */}
         {statusText && (
           <div style={{
             fontSize: '0.7rem',
-            color: statusText.includes('No hand') ? 'rgba(255,100,100,0.5)' :
-              statusText.includes('fail') ? 'rgba(255,80,80,0.6)' :
-                'rgba(255,255,255,0.35)',
-            marginTop: '0.6rem',
-            fontStyle: 'italic',
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
           }}>
             <span style={{
               width: '6px', height: '6px', borderRadius: '50%',
-              background: statusText.includes('No hand') ? '#ff6464' :
-                statusText.includes('fail') ? '#ff5050' :
+              background: statusText.includes('fail') ? '#ff4444' :
+                statusText.includes('No hand') ? '#ff8844' :
                   statusText === 'Initializing…' ? '#ffaa00' : '#00ff82',
-              boxShadow: statusText === '' ? '0 0 6px #00ff82' : 'none',
-              animation: statusText === 'Initializing…' ? 'pulse 1.5s infinite' : 'none',
             }} />
-            {statusText || 'Hand tracking active'}
+            <span style={{
+              color: statusText.includes('fail') ? 'rgba(255,80,80,0.7)' :
+                'rgba(255,255,255,0.35)',
+              fontStyle: 'italic',
+            }}>
+              {statusText || 'Hand tracking active'}
+            </span>
           </div>
         )}
 
         {debug && (
           <div style={{
-            marginTop: '1rem', fontFamily: 'monospace', fontSize: '0.65rem',
-            background: 'rgba(0,0,0,0.5)', padding: '0.5rem', borderRadius: 4,
+            marginTop: '1rem', fontFamily: 'monospace', fontSize: '0.6rem',
+            background: 'rgba(0,0,0,0.6)', padding: '0.5rem', borderRadius: 4,
             border: '1px solid rgba(255,255,255,0.1)', color: '#0f0',
           }}>
             DEBUG ON (press d to toggle)
@@ -188,13 +137,34 @@ export default function AttractorApp() {
         )}
       </div>
 
-      {/* Pulse animation keyframes */}
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-      `}</style>
+      {/* Bottom center — interaction hint */}
+      <div style={{
+        position: 'absolute', bottom: '2rem', left: '50%',
+        transform: 'translateX(-50%)',
+        pointerEvents: 'none', zIndex: 10,
+        textAlign: 'center',
+        fontFamily: '"Inter", -apple-system, sans-serif',
+      }}>
+        <div style={{
+          fontSize: '0.65rem',
+          color: 'rgba(255,255,255,0.25)',
+          letterSpacing: '0.1em',
+        }}>
+          Drag to orbit · Fist to cycle
+        </div>
+      </div>
+
+      {/* Hand tracking status — bottom right above camera */}
+      <div style={{
+        position: 'fixed', bottom: '195px', right: '20px',
+        zIndex: 20, pointerEvents: 'none',
+        fontFamily: '"Inter", sans-serif',
+        fontSize: '0.65rem',
+        color: !statusText ? 'rgba(0,255,130,0.6)' : 'rgba(255,100,60,0.5)',
+        fontStyle: 'italic',
+      }}>
+        {statusText === '' ? '' : statusText.includes('fail') ? '● Hand tracking failed' : ''}
+      </div>
     </div>
   );
 }
