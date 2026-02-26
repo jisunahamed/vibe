@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js';
 
 import { ATTRACTORS, AttractorKey } from '../lib/attractors';
 import type { HandMetrics } from '../hooks/useHandTracking';
@@ -191,6 +192,7 @@ function rk4Step(p: [number, number, number], att: typeof ATTRACTORS[AttractorKe
 const vertexShader = `
     attribute float alpha;
     attribute float size;
+    uniform float uBreathe;
     varying float vAlpha;
     varying vec3 vColor;
 
@@ -198,7 +200,8 @@ const vertexShader = `
         vAlpha = alpha;
         vColor = color;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * (150.0 / -mvPosition.z);
+        float breatheSize = size * (1.0 + uBreathe * 0.3);
+        gl_PointSize = breatheSize * (150.0 / -mvPosition.z);
         gl_PointSize = clamp(gl_PointSize, 1.0, 6.0);
         gl_Position = projectionMatrix * mvPosition;
     }
@@ -264,7 +267,10 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.3, 0.3, 0.85);
         composer.addPass(bloom);
 
-        // No AfterimagePass — trails are handled by the particle trail system itself
+        // AfterimagePass for smooth trail/fusion effect (safe with NormalBlending)
+        const afterimage = new AfterimagePass();
+        afterimage.uniforms['damp'].value = 0.88;
+        composer.addPass(afterimage);
 
         // ── Controls ──
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -296,6 +302,9 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         const shaderMat = new THREE.ShaderMaterial({
             vertexShader,
             fragmentShader,
+            uniforms: {
+                uBreathe: { value: 0.0 },
+            },
             transparent: true,
             depthWrite: false,
             blending: THREE.NormalBlending,
@@ -403,6 +412,9 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
                 curBiasX.current *= 0.95;
                 curBiasY.current *= 0.95;
             }
+
+            // ── Breathing point size ──
+            shaderMat.uniforms.uBreathe.value = Math.sin(t * 1.5) * 0.5;
 
             // ── Rotate stars ──
             stars.rotation.y += 0.0001;
