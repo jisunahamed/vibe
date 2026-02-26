@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js';
+
 import { ATTRACTORS, AttractorKey } from '../lib/attractors';
 import type { HandMetrics } from '../hooks/useHandTracking';
 
@@ -17,17 +17,47 @@ interface Props {
     debug?: boolean;
 }
 
+/* ─── Color palettes for each attractor ───────────────────────────── */
+const ATTRACTOR_PALETTES: Record<AttractorKey, { primary: [number, number, number], secondary: [number, number, number], accent: [number, number, number] }> = {
+    lorenz: {
+        primary: [0.1, 0.6, 1.0],    // Electric blue
+        secondary: [0.9, 0.2, 0.5],   // Hot pink
+        accent: [0.3, 1.0, 0.8],      // Cyan/teal
+    },
+    aizawa: {
+        primary: [1.0, 0.4, 0.1],    // Orange
+        secondary: [0.3, 0.1, 0.9],   // Deep purple
+        accent: [1.0, 0.8, 0.2],      // Gold
+    },
+    thomas: {
+        primary: [0.2, 0.9, 0.4],    // Neon green
+        secondary: [0.0, 0.5, 1.0],   // Sky blue
+        accent: [0.8, 1.0, 0.3],      // Lime
+    },
+    halvorsen: {
+        primary: [0.9, 0.1, 0.3],    // Crimson
+        secondary: [1.0, 0.6, 0.0],   // Amber
+        accent: [1.0, 0.3, 0.7],      // Magenta
+    },
+    arneodo: {
+        primary: [0.6, 0.2, 1.0],    // Violet
+        secondary: [0.2, 0.8, 1.0],   // Ice blue
+        accent: [0.9, 0.4, 1.0],      // Orchid
+    },
+};
+
 /* ─── Live particle system ─────────────────────────────────────────── */
 
-const PARTICLE_COUNT = 8000;   // Number of live particles
-const TRAIL_LENGTH = 12;     // Each particle = trail of N sub-points
+const PARTICLE_COUNT = 3000;   // Number of live particles
+const TRAIL_LENGTH = 10;       // Each particle = trail of N sub-points
 const TOTAL_POINTS = PARTICLE_COUNT * TRAIL_LENGTH;
 
 interface ParticleState {
-    positions: Float32Array; // x,y,z per trail point  (TOTAL_POINTS * 3)
+    positions: Float32Array;
     colors: Float32Array;
-    alphas: Float32Array; // per-point opacity
-    heads: Float32Array; // current head position per particle (PARTICLE_COUNT * 3)
+    alphas: Float32Array;
+    sizes: Float32Array;     // Per-point size for variety
+    heads: Float32Array;
     key: AttractorKey;
     normCenter: [number, number, number];
     normScale: number;
@@ -36,12 +66,14 @@ interface ParticleState {
 /** Initialise particles randomly near the attractor's initial condition */
 function initParticles(key: AttractorKey): ParticleState {
     const att = ATTRACTORS[key];
+    const palette = ATTRACTOR_PALETTES[key];
     const positions = new Float32Array(TOTAL_POINTS * 3);
     const colors = new Float32Array(TOTAL_POINTS * 3);
     const alphas = new Float32Array(TOTAL_POINTS);
+    const sizes = new Float32Array(TOTAL_POINTS);
     const heads = new Float32Array(PARTICLE_COUNT * 3);
 
-    // We pre-compute a normalization reference by iterating a bunch of steps
+    // Pre-compute normalization reference
     let p: [number, number, number] = [...att.initial];
     const refPts: [number, number, number][] = [];
     for (let i = 0; i < 5000; i++) {
@@ -63,13 +95,15 @@ function initParticles(key: AttractorKey): ParticleState {
     // Scatter particles across the reference trajectory
     for (let i = 0; i < PARTICLE_COUNT; i++) {
         const ref = refPts[Math.floor(Math.random() * refPts.length)];
-        // Small random offset so they don't all bunch up
         const jx = ref[0] + (Math.random() - 0.5) * normScale * 0.02;
         const jy = ref[1] + (Math.random() - 0.5) * normScale * 0.02;
         const jz = ref[2] + (Math.random() - 0.5) * normScale * 0.02;
         heads[i * 3] = jx; heads[i * 3 + 1] = jy; heads[i * 3 + 2] = jz;
 
-        // Initialise all trail sub-points to the head (they'll spread out quickly)
+        // Choose color from palette based on particle position along trajectory
+        const colorMix = (i / PARTICLE_COUNT);
+        const phase = colorMix * Math.PI * 2;
+
         for (let t = 0; t < TRAIL_LENGTH; t++) {
             const idx = (i * TRAIL_LENGTH + t) * 3;
             const nx = (jx - normCenter[0]) / normScale;
@@ -77,27 +111,37 @@ function initParticles(key: AttractorKey): ParticleState {
             const nz = (jz - normCenter[2]) / normScale;
             positions[idx] = nx; positions[idx + 1] = ny; positions[idx + 2] = nz;
 
-            // Color: hue based on particle index
-            const hue = (i / PARTICLE_COUNT) * 6.28;
-            colors[idx] = 0.55 + 0.45 * Math.sin(hue);
-            colors[idx + 1] = 0.55 + 0.45 * Math.sin(hue + 2.09);
-            colors[idx + 2] = 0.55 + 0.45 * Math.sin(hue + 4.19);
+            // Color: interpolate between palette colors based on position
+            const blend1 = Math.sin(phase) * 0.5 + 0.5;
+            const blend2 = Math.sin(phase + 2.09) * 0.5 + 0.5;
+            colors[idx] = palette.primary[0] * blend1 + palette.secondary[0] * blend2 + palette.accent[0] * (1 - blend1) * 0.3;
+            colors[idx + 1] = palette.primary[1] * blend1 + palette.secondary[1] * blend2 + palette.accent[1] * (1 - blend1) * 0.3;
+            colors[idx + 2] = palette.primary[2] * blend1 + palette.secondary[2] * blend2 + palette.accent[2] * (1 - blend1) * 0.3;
 
-            // Alpha: head is bright, tail fades
-            alphas[i * TRAIL_LENGTH + t] = 1.0 - (t / TRAIL_LENGTH);
+            // Clamp colors
+            colors[idx] = Math.min(1.0, colors[idx]);
+            colors[idx + 1] = Math.min(1.0, colors[idx + 1]);
+            colors[idx + 2] = Math.min(1.0, colors[idx + 2]);
+
+            // Alpha: head is bright, tail fades out smoothly
+            const trailFade = 1.0 - (t / TRAIL_LENGTH);
+            alphas[i * TRAIL_LENGTH + t] = trailFade * trailFade; // Quadratic falloff
+
+            // Size: head is larger, tail gets smaller
+            sizes[i * TRAIL_LENGTH + t] = (t === 0) ? 1.0 : Math.max(0.3, trailFade);
         }
     }
 
-    return { positions, colors, alphas, heads, key, normCenter, normScale };
+    return { positions, colors, alphas, sizes, heads, key, normCenter, normScale };
 }
 
 /** Advance all particles one step along the attractor */
 function stepParticles(state: ParticleState) {
     const att = ATTRACTORS[state.key];
-    const { positions, heads, alphas, normCenter, normScale } = state;
+    const { positions, heads, normCenter, normScale } = state;
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-        // Shift trail backward (oldest point gets overwritten)
+        // Shift trail backward
         for (let t = TRAIL_LENGTH - 1; t > 0; t--) {
             const dst = (i * TRAIL_LENGTH + t) * 3;
             const src = (i * TRAIL_LENGTH + t - 1) * 3;
@@ -111,7 +155,6 @@ function stepParticles(state: ParticleState) {
         const next = rk4Step([hx, hy, hz], att);
 
         if (isNaN(next[0]) || Math.abs(next[0]) > 1e4) {
-            // Reset this particle to initial condition with jitter
             const init = att.initial;
             next[0] = init[0] + (Math.random() - 0.5) * 0.1;
             next[1] = init[1] + (Math.random() - 0.5) * 0.1;
@@ -120,7 +163,6 @@ function stepParticles(state: ParticleState) {
 
         heads[i * 3] = next[0]; heads[i * 3 + 1] = next[1]; heads[i * 3 + 2] = next[2];
 
-        // Write normalised head position to the first trail slot
         const idx = (i * TRAIL_LENGTH) * 3;
         positions[idx] = (next[0] - normCenter[0]) / normScale;
         positions[idx + 1] = (next[1] - normCenter[1]) / normScale;
@@ -128,7 +170,7 @@ function stepParticles(state: ParticleState) {
     }
 }
 
-/** Single RK4 step using the attractor definition */
+/** Single RK4 step */
 function rk4Step(p: [number, number, number], att: typeof ATTRACTORS[AttractorKey]): [number, number, number] {
     const f = att.derive;
     const pr = att.params;
@@ -143,6 +185,38 @@ function rk4Step(p: [number, number, number], att: typeof ATTRACTORS[AttractorKe
         p[2] + (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]) * dt / 6,
     ];
 }
+
+/* ─── Custom Shader Material for particles ──────────────────────── */
+
+const vertexShader = `
+    attribute float alpha;
+    attribute float size;
+    varying float vAlpha;
+    varying vec3 vColor;
+
+    void main() {
+        vAlpha = alpha;
+        vColor = color;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size * (150.0 / -mvPosition.z);
+        gl_PointSize = clamp(gl_PointSize, 1.0, 6.0);
+        gl_Position = projectionMatrix * mvPosition;
+    }
+`;
+
+const fragmentShader = `
+    varying float vAlpha;
+    varying vec3 vColor;
+
+    void main() {
+        // Soft circle shape
+        float d = length(gl_PointCoord - vec2(0.5));
+
+        if (d > 0.5) discard;
+        float softEdge = 1.0 - smoothstep(0.1, 0.5, d);
+        gl_FragColor = vec4(vColor, vAlpha * softEdge * 0.85);
+    }
+`;
 
 
 /* ─── React Component ──────────────────────────────────────────────── */
@@ -168,17 +242,18 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
 
         // ── Scene ──
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x020208);
+        scene.background = new THREE.Color(0x050510);
+        scene.fog = new THREE.FogExp2(0x050510, 0.15);
 
         // ── Camera ──
-        const camera = new THREE.PerspectiveCamera(65, w / h, 0.01, 500);
-        camera.position.set(0, 0, 2.2);
+        const camera = new THREE.PerspectiveCamera(55, w / h, 0.01, 500);
+        camera.position.set(0, 0, 2.5);
 
         // ── Renderer ──
-        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
         renderer.setSize(w, h);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.setClearColor(0x020208, 1);
+        renderer.setClearColor(0x050510, 1);
         renderer.domElement.style.display = 'block';
         containerRef.current.appendChild(renderer.domElement);
 
@@ -186,18 +261,20 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
 
-        const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.5, 0.4, 0.85);
+        const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.3, 0.3, 0.85);
         composer.addPass(bloom);
 
-        const afterimage = new AfterimagePass();
-        afterimage.uniforms['damp'].value = 0.92; // Longer trails for flowing particles
-        composer.addPass(afterimage);
+        // No AfterimagePass — trails are handled by the particle trail system itself
 
         // ── Controls ──
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.06;
         controls.enablePan = false;
+        controls.enableZoom = true;
+        controls.minDistance = 0.5;
+        controls.maxDistance = 8.0;
+        controls.autoRotate = false;
 
         // ── Attractor group ──
         const group = new THREE.Group();
@@ -213,55 +290,63 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.Float32BufferAttribute(pState.positions, 3));
         geo.setAttribute('color', new THREE.Float32BufferAttribute(pState.colors, 3));
-        // Note: dynamic — we update positions every frame
-        geo.attributes.position.needsUpdate = true;
+        geo.setAttribute('alpha', new THREE.Float32BufferAttribute(pState.alphas, 1));
+        geo.setAttribute('size', new THREE.Float32BufferAttribute(pState.sizes, 1));
 
-        const mat = new THREE.PointsMaterial({
-            size: 0.006,
-            vertexColors: true,
+        const shaderMat = new THREE.ShaderMaterial({
+            vertexShader,
+            fragmentShader,
             transparent: true,
-            opacity: 0.7,
-            blending: THREE.AdditiveBlending,
             depthWrite: false,
+            blending: THREE.NormalBlending,
+            vertexColors: true,
         });
 
-        const pts = new THREE.Points(geo, mat);
+        const pts = new THREE.Points(geo, shaderMat);
         group.add(pts);
         pointsRef.current = pts;
         prevIdxRef.current = attractorIndex;
         readyRef.current = true;
 
         // ── Starfield ──
-        const STAR_N = 4000;
+        const STAR_N = 3000;
         const sP = new Float32Array(STAR_N * 3);
         const sC = new Float32Array(STAR_N * 3);
         for (let i = 0; i < STAR_N; i++) {
-            const r = 8 + Math.random() * 22;
+            const r = 10 + Math.random() * 25;
             const th = Math.random() * Math.PI * 2;
             const ph = Math.acos(2 * Math.random() - 1);
             sP[i * 3] = r * Math.sin(ph) * Math.cos(th);
             sP[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
             sP[i * 3 + 2] = r * Math.cos(ph);
-            const b = 0.3 + Math.random() * 0.7;
-            sC[i * 3] = b; sC[i * 3 + 1] = b; sC[i * 3 + 2] = b;
+            // Subtle colored stars
+            const starHue = Math.random();
+            sC[i * 3] = 0.5 + 0.5 * Math.sin(starHue * 6.28);
+            sC[i * 3 + 1] = 0.5 + 0.5 * Math.sin(starHue * 6.28 + 2);
+            sC[i * 3 + 2] = 0.5 + 0.5 * Math.sin(starHue * 6.28 + 4);
         }
         const sGeo = new THREE.BufferGeometry();
         sGeo.setAttribute('position', new THREE.BufferAttribute(sP, 3));
         sGeo.setAttribute('color', new THREE.BufferAttribute(sC, 3));
         const stars = new THREE.Points(sGeo, new THREE.PointsMaterial({
-            size: 0.04, vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false,
+            size: 0.03, vertexColors: true, transparent: true, opacity: 0.4, depthWrite: false,
         }));
         scene.add(stars);
+
+        // ── Optional ambient light ring (subtle aesthetic) ──
+        const ringGeo = new THREE.TorusGeometry(1.2, 0.003, 8, 100);
+        const ringMat = new THREE.MeshBasicMaterial({
+            color: 0x3366ff,
+            transparent: true,
+            opacity: 0.15,
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        group.add(ring);
 
         // ── Debug ──
         if (debug) {
             scene.add(new THREE.AxesHelper(2));
-            const bx = new THREE.Mesh(
-                new THREE.BoxGeometry(0.2, 0.2, 0.2),
-                new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true }),
-            );
-            bx.position.set(1.5, 0, 0);
-            scene.add(bx);
         }
 
         // ── Animation loop ──
@@ -275,11 +360,10 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
             const t = clock.getElapsedTime();
             controls.update();
 
-            // ── Advance live particles (multiple steps per frame for speed) ──
+            // ── Advance live particles (controlled speed — 2 steps per frame) ──
             if (stateRef.current && pointsRef.current) {
                 stepAccum += dt;
-                // Run ~3 integration steps per frame at 60fps
-                const stepsPerFrame = Math.min(Math.floor(stepAccum / 0.005), 5);
+                const stepsPerFrame = Math.min(Math.floor(stepAccum / 0.008), 3);
                 for (let s = 0; s < stepsPerFrame; s++) {
                     stepParticles(stateRef.current);
                 }
@@ -291,38 +375,38 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
                 posAttr.needsUpdate = true;
             }
 
-            // ── Group rotation (moderate speed) ──
-            group.rotation.y += 0.006;
-            group.rotation.x += 0.002;
-            group.rotation.z = Math.sin(t * 0.5) * 0.06;
+            // ── Group rotation (SLOW — enjoyable to watch) ──
+            group.rotation.y += 0.002;
+            group.rotation.x += 0.0008;
+            group.rotation.z = Math.sin(t * 0.3) * 0.04;
+
+            // ── Ring animation ──
+            ring.rotation.z = t * 0.2;
+            ringMat.opacity = 0.08 + Math.sin(t * 0.8) * 0.04;
 
             // ── Hand interaction ──
             const m = getMetrics();
             if (m.present) {
+                // Scale: hand closer = bigger
                 const tgtScale = 0.6 + m.scale * 1.8;
-                curScale.current += (tgtScale - curScale.current) * 0.08;
+                curScale.current += (tgtScale - curScale.current) * 0.06;
                 group.scale.setScalar(curScale.current);
 
-                curBiasY.current += ((m.centerX - 0.5) * 1.0 - curBiasY.current) * 0.05;
-                curBiasX.current += ((m.centerY - 0.5) * 0.6 - curBiasX.current) * 0.05;
-                group.rotation.y += curBiasY.current * 0.03;
-                group.rotation.x += curBiasX.current * 0.03;
+                // Rotation bias from hand position
+                curBiasY.current += ((m.centerX - 0.5) * 1.2 - curBiasY.current) * 0.04;
+                curBiasX.current += ((m.centerY - 0.5) * 0.8 - curBiasX.current) * 0.04;
+                group.rotation.y += curBiasY.current * 0.04;
+                group.rotation.x += curBiasX.current * 0.04;
             } else {
-                curScale.current += (1.0 - curScale.current) * 0.04;
+                curScale.current += (1.0 - curScale.current) * 0.03;
                 group.scale.setScalar(curScale.current);
                 curBiasX.current *= 0.95;
                 curBiasY.current *= 0.95;
             }
 
-            // ── Breathe point size ──
-            if (pointsRef.current) {
-                (pointsRef.current.material as THREE.PointsMaterial).size =
-                    0.006 + Math.sin(t * 2.0) * 0.002;
-            }
-
             // ── Rotate stars ──
-            stars.rotation.y += 0.0003;
-            stars.rotation.x += 0.0001;
+            stars.rotation.y += 0.0001;
+            stars.rotation.x += 0.00005;
 
             composer.render();
         }
@@ -363,12 +447,19 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
         stateRef.current = newState;
 
         // Update geometry buffers in-place
-        const posAttr = pointsRef.current.geometry.attributes.position as THREE.BufferAttribute;
-        const colAttr = pointsRef.current.geometry.attributes.color as THREE.BufferAttribute;
+        const geo = pointsRef.current.geometry;
+        const posAttr = geo.attributes.position as THREE.BufferAttribute;
+        const colAttr = geo.attributes.color as THREE.BufferAttribute;
+        const alphaAttr = geo.attributes.alpha as THREE.BufferAttribute;
+        const sizeAttr = geo.attributes.size as THREE.BufferAttribute;
         (posAttr.array as Float32Array).set(newState.positions);
         (colAttr.array as Float32Array).set(newState.colors);
+        (alphaAttr.array as Float32Array).set(newState.alphas);
+        (sizeAttr.array as Float32Array).set(newState.sizes);
         posAttr.needsUpdate = true;
         colAttr.needsUpdate = true;
+        alphaAttr.needsUpdate = true;
+        sizeAttr.needsUpdate = true;
 
         prevIdxRef.current = attractorIndex;
     }, [attractorIndex]);
@@ -379,7 +470,7 @@ export default function AttractorCanvas({ attractorIndex, getMetrics, getStatus,
             style={{
                 position: 'fixed', inset: 0,
                 width: '100vw', height: '100vh',
-                background: '#020208', zIndex: 0,
+                background: '#050510', zIndex: 0,
             }}
         />
     );

@@ -9,6 +9,12 @@ export interface HandMetrics {
     scale: number;   // 0..1 normalised (bigger = hand closer)
 }
 
+export interface HandLandmark {
+    x: number;
+    y: number;
+    z: number;
+}
+
 const DEFAULT_METRICS: HandMetrics = { present: false, centerX: 0.5, centerY: 0.5, scale: 0.5 };
 
 /**
@@ -16,6 +22,8 @@ const DEFAULT_METRICS: HandMetrics = { present: false, centerX: 0.5, centerY: 0.
  *   status  — UI string ("Initializing…" / "No hand detected" / "Hand tracking failed" / "")
  *   metrics — live hand position + scale for driving visuals
  *   onFist  — external callback triggered on open→fist transition (cooldown 800 ms)
+ *   videoRef — reference to the video element for camera preview
+ *   landmarksRef — reference to current hand landmarks for visualization
  *
  * The metrics ref is updated at camera framerate (~30 fps) without causing React re-renders;
  * the canvas animation loop reads it directly via getMetrics().
@@ -28,6 +36,7 @@ export function useHandTracking(onFist: () => void) {
     const lastFistRef = useRef(0);
     const wasFistRef = useRef(false);
     const rafRef = useRef(0);
+    const landmarksDataRef = useRef<HandLandmark[] | null>(null);
 
     // EMA smoothing state (not in React state to avoid renders)
     const smoothX = useRef(0.5);
@@ -37,6 +46,8 @@ export function useHandTracking(onFist: () => void) {
 
     const getStatus = useCallback(() => statusRef.current, []);
     const getMetrics = useCallback(() => metricsRef.current, []);
+    const getVideo = useCallback(() => videoRef.current, []);
+    const getLandmarks = useCallback(() => landmarksDataRef.current, []);
 
     useEffect(() => {
         let active = true;
@@ -89,6 +100,9 @@ export function useHandTracking(onFist: () => void) {
                         statusRef.current = "";
                         const lm = res.landmarks[0];
 
+                        // Store landmarks for visualization
+                        landmarksDataRef.current = lm.map((l: any) => ({ x: l.x, y: l.y, z: l.z }));
+
                         // Palm metrics
                         const d2 = (a: any, b: any) => Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
                         const palmSize = d2(lm[0], lm[9]);
@@ -133,6 +147,7 @@ export function useHandTracking(onFist: () => void) {
                     } else {
                         statusRef.current = "No hand detected";
                         metricsRef.current = { ...metricsRef.current, present: false };
+                        landmarksDataRef.current = null;
                     }
                 } catch { /* suppress mediapipe internal logs */ }
             }
@@ -151,5 +166,5 @@ export function useHandTracking(onFist: () => void) {
         };
     }, [onFist]);
 
-    return { getStatus, getMetrics };
+    return { getStatus, getMetrics, getVideo, getLandmarks };
 }
